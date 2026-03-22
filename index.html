@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相槌（あいづち）判定タスク</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f5f5f5; color: #333; }
+  .container { max-width: 700px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 1.4em; margin-bottom: 10px; }
+  .info { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .info h2 { font-size: 1.1em; margin-bottom: 8px; color: #1a73e8; }
+  .info p, .info li { font-size: 0.9em; line-height: 1.6; }
+  .info ul { padding-left: 20px; margin-top: 4px; }
+  .progress { background: #e0e0e0; border-radius: 4px; height: 8px; margin: 12px 0; }
+  .progress-bar { background: #1a73e8; height: 8px; border-radius: 4px; transition: width 0.3s; }
+  .progress-text { font-size: 0.85em; color: #666; margin-bottom: 8px; }
+  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .clip-id { font-size: 0.8em; color: #999; }
+  .audio-section { margin-bottom: 16px; }
+  audio { width: 100%; margin-top: 8px; }
+  .utterance { background: #e8f0fe; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  .utterance .label { font-size: 0.75em; color: #1a73e8; font-weight: bold; margin-bottom: 4px; }
+  .utterance .text { font-size: 1.1em; font-weight: bold; }
+  .context { background: #f8f8f8; border-radius: 6px; padding: 10px; margin-bottom: 12px; }
+  .context .label { font-size: 0.75em; color: #888; margin-bottom: 4px; }
+  .context .text { font-size: 0.9em; color: #555; }
+  .timing { font-size: 0.8em; color: #888; margin-bottom: 12px; }
+  .buttons { display: flex; gap: 10px; }
+  .btn { flex: 1; padding: 14px; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .btn-yes { background: #34a853; color: #fff; }
+  .btn-no { background: #ea4335; color: #fff; }
+  .btn-unsure { background: #fbbc04; color: #333; }
+  .btn.selected { outline: 3px solid #333; transform: scale(1.02); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .download-section { text-align: center; margin: 20px 0; }
+  .btn-download { background: #1a73e8; color: #fff; padding: 14px 32px; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer; }
+  .btn-download:hover { background: #1557b0; }
+  .done { text-align: center; padding: 40px; }
+  .done h2 { color: #34a853; margin-bottom: 10px; }
+  .worker-id { margin-bottom: 16px; }
+  .worker-id input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 1em; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>相槌（あいづち）判定タスク</h1>
+
+  <div class="info">
+    <h2>タスクの説明</h2>
+    <p>音声を聴いて、指定された発話が<strong>「相槌（あいづち）」</strong>かどうかを判定してください。</p>
+    <p style="margin-top:8px;"><strong>相槌とは：</strong>相手の話を聞いていることを示す短い応答で、自分が話し始めることを意図していないもの。</p>
+    <ul>
+      <li>相槌の例：「うん」「はい」「なるほど」「へー」「そうですね」、笑い声</li>
+      <li>相槌でない例：質問、文の途中の断片、自分の話を始める発話</li>
+    </ul>
+  </div>
+
+  <div class="worker-id">
+    <input type="text" id="workerId" placeholder="ワーカーIDを入力してください" />
+  </div>
+
+  <div class="progress-text" id="progressText">0 / 45</div>
+  <div class="progress"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+
+  <div id="taskArea"></div>
+
+  <div class="download-section" id="downloadSection" style="display:none;">
+    <button class="btn-download" onclick="downloadResults()">結果をダウンロード (CSV)</button>
+  </div>
+</div>
+
+<script>
+const AUDIO_BASE = 'audio/';
+
+const DATA = [
+  {id:0, file:'000_jchat_podcast_009_2d7e875d.wav', b_text:'はい。', b_start:3.0, b_end:4.65, a_context:''},
+  {id:1, file:'001_jchat_podcast_016_00134342.wav', b_text:'ます。', b_start:3.0, b_end:3.17, a_context:''},
+  {id:2, file:'002_jchat_podcast_023_8093734b.wav', b_text:'あの', b_start:3.0, b_end:3.17, a_context:'まああの。'},
+  {id:3, file:'003_jchat_youtube_004_c3555903.wav', b_text:'やっぱり', b_start:3.0, b_end:3.26, a_context:''},
+  {id:4, file:'004_jchat_youtube_010_6a7be682.wav', b_text:'フフフ。', b_start:3.0, b_end:3.69, a_context:''},
+  {id:5, file:'005_jchat_youtube_019_dd18f4be.wav', b_text:'はい。', b_start:3.0, b_end:3.41, a_context:'さあこの第10ラウンド。左を何度も打って…'},
+  {id:6, file:'006_jchat_youtube_019_dd18f4be.wav', b_text:'ここから先。', b_start:3.0, b_end:3.5, a_context:'さあこの第10ラウンド。左を何度も打って…'},
+  {id:7, file:'007_jchat_youtube_024_337e507c.wav', b_text:'熱い。', b_start:3.0, b_end:4.65, a_context:''},
+  {id:8, file:'008_jchat_youtube_025_52246a30.wav', b_text:'だ。', b_start:3.0, b_end:3.1, a_context:''},
+  {id:9, file:'009_jchat_youtube_026_292a03c3.wav', b_text:'い。', b_start:3.0, b_end:3.13, a_context:''},
+  {id:10, file:'010_jchat_youtube_030_e5b31d7f.wav', b_text:'迫力がね。', b_start:3.0, b_end:3.74, a_context:''},
+  {id:11, file:'011_jchat_youtube_031_b3e21b5d.wav', b_text:'わたしは', b_start:3.0, b_end:3.45, a_context:'手当てするからおねがいしていいですか?…'},
+  {id:12, file:'012_jchat_youtube_034_e3701268.wav', b_text:'あんたは!', b_start:3.0, b_end:3.74, a_context:'なっ!こいつもメインスラスターをねられ…'},
+  {id:13, file:'013_jchat_youtube_034_e3701268.wav', b_text:'えっ?', b_start:3.0, b_end:3.31, a_context:''},
+  {id:14, file:'014_jchat_youtube_043_c932892e.wav', b_text:'カラリ。', b_start:3.0, b_end:3.5, a_context:'思いがね伝わってきますよね。…'},
+  {id:15, file:'015_jchat_youtube_047_99f9ed86.wav', b_text:'間違うち', b_start:3.0, b_end:3.88, a_context:'ねる。'},
+  {id:16, file:'016_jchat_youtube_048_2c89b4e2.wav', b_text:'だよ。', b_start:3.0, b_end:3.26, a_context:''},
+  {id:17, file:'017_zoom1_001_0857_W01_W31_T02.wav', b_text:'うんやだ。', b_start:3.0, b_end:4.85, a_context:''},
+  {id:18, file:'018_zoom1_002_0326_W05_W16_T11.wav', b_text:'うん。', b_start:3.0, b_end:3.13, a_context:'帰ってきたりすることがなかったってことは…'},
+  {id:19, file:'019_zoom1_003_1901_W11_W27_T11.wav', b_text:'うん。', b_start:3.0, b_end:3.36, a_context:''},
+  {id:20, file:'020_zoom1_008_1052_W03_W17_T02.wav', b_text:'ん。そうね。', b_start:1.78, b_end:3.07, a_context:'とてもとても売れないよね。確実に損でるから。'},
+  {id:21, file:'021_zoom1_012_1433_W03_W30_T08.wav', b_text:'。', b_start:0.55, b_end:0.57, a_context:'大体さ家電の保証って1年じゃん。…'},
+  {id:22, file:'022_zoom1_017_0279_W01_W22_T09.wav', b_text:'はい。', b_start:0.86, b_end:0.98, a_context:'安を抱えるような教科とかって'},
+  {id:23, file:'023_zoom1_018_1408_W04_W37_T13.wav', b_text:'うん。', b_start:3.0, b_end:4.17, a_context:'時間としてはさ何時間ぐらいなの?…'},
+  {id:24, file:'024_zoom1_022_1020_W01_W02_T15.wav', b_text:'んうんうん。', b_start:2.47, b_end:2.6, a_context:'多分そんくらいなんだけど…'},
+  {id:25, file:'025_zoom1_022_1020_W01_W02_T15.wav', b_text:'は。', b_start:3.0, b_end:3.26, a_context:'人間よりはは寿命は短いけど…'},
+  {id:26, file:'026_zoom1_022_1020_W01_W02_T15.wav', b_text:'短いう', b_start:3.0, b_end:3.92, a_context:'人間よりはは寿命は短いけど…'},
+  {id:27, file:'027_zoom1_023_0543_W02_W11_T03.wav', b_text:'うん。', b_start:3.0, b_end:3.22, a_context:'アハハハハハ!それだけ今お話聞いてて…'},
+  {id:28, file:'028_zoom1_023_0543_W02_W11_T03.wav', b_text:'売ってたので', b_start:0.0, b_end:0.45, a_context:''},
+  {id:29, file:'029_zoom1_027_1862_W01_W41_T02.wav', b_text:'うん。', b_start:3.0, b_end:3.26, a_context:''},
+  {id:30, file:'030_zoom1_033_1587_W12_W23_T03.wav', b_text:'はい。', b_start:3.0, b_end:3.13, a_context:'日本に数少ない城だから国宝だから'},
+  {id:31, file:'031_zoom1_034_1364_W02_W27_T14.wav', b_text:'勘弁し', b_start:3.0, b_end:3.83, a_context:'そそうほんとに'},
+  {id:32, file:'032_zoom1_035_0650_W07_W26_T05.wav', b_text:'私はもう。', b_start:3.0, b_end:3.98, a_context:''},
+  {id:33, file:'033_zoom1_039_1136_W01_W12_T11.wav', b_text:'へえ。', b_start:3.0, b_end:3.26, a_context:'すいませんこれも500円もらって帰った…'},
+  {id:34, file:'034_zoom1_040_1109_W02_W40_T14.wav', b_text:'うう。', b_start:0.24, b_end:0.3, a_context:'たって感じだよね。'},
+  {id:35, file:'035_zoom1_040_1109_W02_W40_T14.wav', b_text:'あなるほど。', b_start:3.0, b_end:4.22, a_context:''},
+  {id:36, file:'036_zoom1_044_0190_W03_W33_T10.wav', b_text:'ああええ。', b_start:2.72, b_end:4.32, a_context:''},
+  {id:37, file:'037_zoom1_045_1839_W21_W08_T09.wav', b_text:'か例えばね。', b_start:1.72, b_end:1.84, a_context:'も言いだしたら全部切りないよね。…'},
+  {id:38, file:'038_zoom1_045_1839_W21_W08_T09.wav', b_text:'うん。', b_start:3.0, b_end:3.22, a_context:'そっか何かAI怖いよね。…'},
+  {id:39, file:'039_zoom1_047_1060_W03_W38_T10.wav', b_text:'温度や湿度', b_start:3.0, b_end:4.11, a_context:'うん。'},
+  {id:40, file:'040_zoom1_048_0152_W02_W23_T02.wav', b_text:'フフッねっ。', b_start:2.03, b_end:2.82, a_context:'ですよね。ほんとにこう海のきわきわ…'},
+  {id:41, file:'041_zoom1_048_0152_W02_W23_T02.wav', b_text:'いですよね。', b_start:0.05, b_end:1.38, a_context:''},
+  {id:42, file:'042_zoom1_049_1669_W07_W52_T04.wav', b_text:'え。うん。', b_start:3.0, b_end:3.81, a_context:'でもメキシコのこの結婚式は一応いろいろ…'},
+  {id:43, file:'043_zoom1_049_1669_W07_W52_T04.wav', b_text:'ああええ。', b_start:3.0, b_end:4.33, a_context:'多分あるんだと思う。過去がなかったね…'},
+  {id:44, file:'044_zoom1_049_1669_W07_W52_T04.wav', b_text:'ねえ。', b_start:3.0, b_end:3.45, a_context:'多分あるんだと思う。過去がなかったね…'},
+];
+
+let results = {};
+let currentIndex = 0;
+
+// Shuffle for each worker
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const shuffled = shuffle(DATA);
+
+function updateProgress() {
+  const done = Object.keys(results).length;
+  const total = DATA.length;
+  document.getElementById('progressText').textContent = `${done} / ${total}`;
+  document.getElementById('progressBar').style.width = `${(done/total)*100}%`;
+}
+
+function showTask(idx) {
+  if (idx >= shuffled.length) {
+    document.getElementById('taskArea').innerHTML = `
+      <div class="done">
+        <h2>全て完了しました！</h2>
+        <p>下のボタンから結果をダウンロードしてください。</p>
+      </div>`;
+    document.getElementById('downloadSection').style.display = 'block';
+    return;
+  }
+
+  const item = shuffled[idx];
+  const audioUrl = AUDIO_BASE + item.file;
+
+  document.getElementById('taskArea').innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="clip-id">クリップ #${item.id}</span>
+      </div>
+      <div class="audio-section">
+        <audio controls preload="auto" id="audioPlayer">
+          <source src="${audioUrl}" type="audio/wav">
+        </audio>
+      </div>
+      <div class="utterance">
+        <div class="label">判定対象の発話（話者B）</div>
+        <div class="text">「${item.b_text}」</div>
+      </div>
+      ${item.a_context ? `<div class="context">
+        <div class="label">話者Aの発話（文脈）</div>
+        <div class="text">${item.a_context}</div>
+      </div>` : ''}
+      <div class="timing">発話区間: ${item.b_start.toFixed(1)}s 〜 ${item.b_end.toFixed(1)}s</div>
+      <div class="buttons">
+        <button class="btn btn-yes" onclick="answer(${item.id}, 1, this)">相槌である</button>
+        <button class="btn btn-no" onclick="answer(${item.id}, 0, this)">相槌でない</button>
+        <button class="btn btn-unsure" onclick="answer(${item.id}, -1, this)">判断が難しい</button>
+      </div>
+    </div>`;
+}
+
+function answer(clipId, value, btn) {
+  results[clipId] = value;
+  // Highlight selected
+  btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  // Auto-advance after short delay
+  setTimeout(() => {
+    currentIndex++;
+    updateProgress();
+    showTask(currentIndex);
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }, 400);
+}
+
+function downloadResults() {
+  const workerId = document.getElementById('workerId').value || 'unknown';
+  let csv = 'worker_id,clip_id,annotation\n';
+  for (const item of DATA) {
+    const val = results[item.id] !== undefined ? results[item.id] : '';
+    csv += `${workerId},${item.id},${val}\n`;
+  }
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backchannel_annotation_${workerId}.csv`;
+  a.click();
+}
+
+// Init
+updateProgress();
+showTask(0);
+</script>
+</body>
+</html>

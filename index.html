@@ -9,6 +9,7 @@
   body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f5f5f5; color: #333; }
   .container { max-width: 700px; margin: 0 auto; padding: 20px; }
   h1 { font-size: 1.4em; margin-bottom: 10px; }
+  .set-info { background: #e8f0fe; border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; font-size: 0.9em; color: #1a73e8; }
   .info { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .info h2 { font-size: 1.1em; margin-bottom: 8px; color: #1a73e8; }
   .info p, .info li { font-size: 0.9em; line-height: 1.6; }
@@ -35,14 +36,12 @@
   .btn-no { background: #ea4335; color: #fff; }
   .btn-unsure { background: #fbbc04; color: #333; }
   .btn.selected { outline: 3px solid #333; transform: scale(1.02); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .download-section { text-align: center; margin: 20px 0; }
   .btn-download { background: #1a73e8; color: #fff; padding: 14px 32px; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer; }
   .btn-download:hover { background: #1557b0; }
   .done { text-align: center; padding: 40px; }
   .done h2 { color: #34a853; margin-bottom: 10px; }
-  .worker-id { margin-bottom: 16px; }
-  .worker-id input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 1em; }
+  .error { background: #fce8e6; color: #c5221f; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 </style>
 </head>
 <body>
@@ -57,26 +56,27 @@
       <li>相槌の例：「うん」「はい」「なるほど」「へー」「そうですね」、笑い声</li>
       <li>相槌でない例：質問、文の途中の断片、自分の話を始める発話</li>
     </ul>
+    <p style="margin-top:8px;">所要時間：約5〜10分（15問）</p>
   </div>
 
-  <div class="worker-id">
-    <input type="text" id="workerId" placeholder="ワーカーIDを入力してください" />
-  </div>
+  <div id="errorArea"></div>
+  <div class="set-info" id="setInfo"></div>
 
-  <div class="progress-text" id="progressText">0 / 45</div>
+  <div class="progress-text" id="progressText">0 / 15</div>
   <div class="progress"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
 
   <div id="taskArea"></div>
 
   <div class="download-section" id="downloadSection" style="display:none;">
     <button class="btn-download" onclick="downloadResults()">結果をダウンロード (CSV)</button>
+    <p style="margin-top:12px; font-size:0.85em; color:#666;">ダウンロードしたCSVファイルを納品してください。</p>
   </div>
 </div>
 
 <script>
 const AUDIO_BASE = 'audio/';
 
-const DATA = [
+const ALL_DATA = [
   {id:0, file:'000_jchat_podcast_009_2d7e875d.wav', b_text:'はい。', b_start:3.0, b_end:4.65, a_context:''},
   {id:1, file:'001_jchat_podcast_016_00134342.wav', b_text:'ます。', b_start:3.0, b_end:3.17, a_context:''},
   {id:2, file:'002_jchat_podcast_023_8093734b.wav', b_text:'あの', b_start:3.0, b_end:3.17, a_context:'まああの。'},
@@ -124,10 +124,37 @@ const DATA = [
   {id:44, file:'044_zoom1_049_1669_W07_W52_T04.wav', b_text:'ねえ。', b_start:3.0, b_end:3.45, a_context:'多分あるんだと思う。過去がなかったね…'},
 ];
 
-let results = {};
-let currentIndex = 0;
+// Split into 3 sets of 15
+const SETS = {
+  1: ALL_DATA.slice(0, 15),
+  2: ALL_DATA.slice(15, 30),
+  3: ALL_DATA.slice(30, 45),
+};
 
-// Shuffle for each worker
+// Get set from URL param
+const params = new URLSearchParams(window.location.search);
+const setNum = parseInt(params.get('set')) || 0;
+const workerId = params.get('worker_id') || '';
+
+if (!SETS[setNum]) {
+  document.getElementById('errorArea').innerHTML = `
+    <div class="error">
+      <strong>セット番号を指定してください。</strong><br>
+      以下のURLからアクセスしてください：<br><br>
+      <a href="?set=1">セット1（問1〜15）</a><br>
+      <a href="?set=2">セット2（問16〜30）</a><br>
+      <a href="?set=3">セット3（問31〜45）</a>
+    </div>`;
+  document.getElementById('taskArea').style.display = 'none';
+  document.getElementById('setInfo').style.display = 'none';
+}
+
+const DATA = SETS[setNum] || [];
+document.getElementById('setInfo').textContent = DATA.length > 0
+  ? `セット ${setNum} / 3（${DATA.length}問）`
+  : '';
+
+// Shuffle within set
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -138,6 +165,8 @@ function shuffle(arr) {
 }
 
 const shuffled = shuffle(DATA);
+let results = {};
+let currentIndex = 0;
 
 function updateProgress() {
   const done = Object.keys(results).length;
@@ -151,7 +180,7 @@ function showTask(idx) {
     document.getElementById('taskArea').innerHTML = `
       <div class="done">
         <h2>全て完了しました！</h2>
-        <p>下のボタンから結果をダウンロードしてください。</p>
+        <p>下のボタンから結果をダウンロードし、納品してください。</p>
       </div>`;
     document.getElementById('downloadSection').style.display = 'block';
     return;
@@ -163,22 +192,24 @@ function showTask(idx) {
   document.getElementById('taskArea').innerHTML = `
     <div class="card">
       <div class="card-header">
-        <span class="clip-id">クリップ #${item.id}</span>
+        <span>問 ${idx + 1} / ${shuffled.length}</span>
+        <span class="clip-id">#${item.id}</span>
       </div>
       <div class="audio-section">
-        <audio controls preload="auto" id="audioPlayer">
+        <p style="font-size:0.85em; color:#666; margin-bottom:4px;">音声を聴いてください（何度でも再生可）</p>
+        <audio controls preload="auto">
           <source src="${audioUrl}" type="audio/wav">
         </audio>
       </div>
       <div class="utterance">
-        <div class="label">判定対象の発話（話者B）</div>
+        <div class="label">判定対象の発話（話者B） [${item.b_start.toFixed(1)}s〜${item.b_end.toFixed(1)}s]</div>
         <div class="text">「${item.b_text}」</div>
       </div>
       ${item.a_context ? `<div class="context">
         <div class="label">話者Aの発話（文脈）</div>
         <div class="text">${item.a_context}</div>
       </div>` : ''}
-      <div class="timing">発話区間: ${item.b_start.toFixed(1)}s 〜 ${item.b_end.toFixed(1)}s</div>
+      <p style="font-size:0.9em; margin-bottom:12px;">この発話は<strong>相槌</strong>ですか？</p>
       <div class="buttons">
         <button class="btn btn-yes" onclick="answer(${item.id}, 1, this)">相槌である</button>
         <button class="btn btn-no" onclick="answer(${item.id}, 0, this)">相槌でない</button>
@@ -189,10 +220,8 @@ function showTask(idx) {
 
 function answer(clipId, value, btn) {
   results[clipId] = value;
-  // Highlight selected
   btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  // Auto-advance after short delay
   setTimeout(() => {
     currentIndex++;
     updateProgress();
@@ -202,23 +231,24 @@ function answer(clipId, value, btn) {
 }
 
 function downloadResults() {
-  const workerId = document.getElementById('workerId').value || 'unknown';
-  let csv = 'worker_id,clip_id,annotation\n';
+  const wid = workerId || 'unknown';
+  let csv = 'worker_id,set,clip_id,annotation\n';
   for (const item of DATA) {
     const val = results[item.id] !== undefined ? results[item.id] : '';
-    csv += `${workerId},${item.id},${val}\n`;
+    csv += `${wid},${setNum},${item.id},${val}\n`;
   }
   const blob = new Blob([csv], {type: 'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backchannel_annotation_${workerId}.csv`;
+  a.download = `backchannel_set${setNum}_${wid}.csv`;
   a.click();
 }
 
-// Init
-updateProgress();
-showTask(0);
+if (DATA.length > 0) {
+  updateProgress();
+  showTask(0);
+}
 </script>
 </body>
 </html>
